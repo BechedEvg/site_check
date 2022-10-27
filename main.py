@@ -148,7 +148,7 @@ def get_external_link(url, source_page):
     return list_link
 
 
-# get page code with wedriwera
+# get page code with webdriwer
 def get_page_source_webdriver(url):
     browser = DriverChrome()
     browser.open_browser()
