@@ -3,8 +3,10 @@ import json
 import cloudscraper
 import os
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium_stealth import stealth
 from time import sleep
+from usp.tree  import sitemap_tree_for_homepage
 
 
 class DriverChrome:
@@ -19,8 +21,7 @@ class DriverChrome:
         self.options.add_experimental_option('useAutomationExtension', False)
 
     def open_browser(self):
-        self.driver = webdriver.Chrome(options=self.options,
-                                       executable_path=rf"{os.getcwd()}/chromedriver")
+        self.driver = webdriver.Chrome(options=self.options, service=Service(rf"{os.getcwd()}/chromedriver"))
 
         stealth(self.driver,
                 languages=["en-US", "en"],
@@ -68,9 +69,15 @@ class ScrapingHead:
             return "not_found"
 
 
-def json_write(result_dict):
-    with open('Result.json', 'w') as outfile:
-        json.dump(result_dict, outfile, indent=4, ensure_ascii=False)
+class JsonRW:
+
+    def json_write(self, name, in_dict):
+        with open(f'{name}.json', 'w') as outfile:
+            json.dump(in_dict, outfile, indent=4, ensure_ascii=False)
+
+    def json_read(self, name):
+        with open(f'{name}.json', 'r') as infile:
+            return json.load(infile)
 
 
 # check for google code on page
@@ -80,6 +87,7 @@ def check_cod_google(source_page):
     script = str(parser.find_all('script', {"src": True}))
     if script.find("googletagmanager.com/gtag/js") != -1:
         dict_google_cod["analytics(ga4)"] = "found"
+
     if script.find("google-analytics.com/analytics.js") != -1:
         dict_google_cod["analytics(ua)"] = "found"
     return dict_google_cod
@@ -106,15 +114,19 @@ def get_teg_h(source_page):
     dict_tag = {"h1": {"count": 0, "list_source": []}, "list_tag": []}
     for tag in list_tag_h:
         h = str(tag).split()[0][1:3]
+
         if h == "h1":
             dict_tag["h1"]["count"] += 1
             dict_tag["h1"]["list_source"].append(str(tag))
+
         if h not in dict_tag["list_tag"]:
             dict_tag["list_tag"].append(h)
+
     if len(dict_tag["list_tag"]) != 0:
         return dict_tag
     else:
         return "not_found"
+
 
 # checking if two links belong to the same domain
 def check_domain(url_page, link):
@@ -123,10 +135,13 @@ def check_domain(url_page, link):
         link = link.split('/')[2]
         if url_page.split(".")[0].lower() == "www":
             url_page = link[4:]
+
         if link.split(".")[0].lower() == "www":
             link = link[4:]
+
         if link == url_page:
             return True
+
         return False
     except:
         return False
@@ -158,6 +173,7 @@ def get_page_source_webdriver(url):
     return html
 
 
+
 def get_url(url):
     scraper = cloudscraper.create_scraper()
     try:
@@ -166,40 +182,13 @@ def get_url(url):
         return "no_connection"
 
 
-# get url list from xml
-def get_sitemap_url_list(url):
-    sitemap_url = get_url(url)
-    url_list = []
-    if sitemap_url != "no_connection":
-        source_page = sitemap_url.text
-        parser = BeautifulSoup(source_page, features="xml")
-        for loc in (parser.find_all('loc') + parser.find_all('href')):
-            if check_domain(url, loc.get_text()):
-                url_list.append(loc.get_text())
-    return url_list
-
-
-# get a list of site pages from the sitemap with checking for nesting
-def get_site_url_list(sitemap):
-    urls_sitemap = get_sitemap_url_list(sitemap)
-    list_page_site = []
-    list_xml = []
-    while True:
-        if len(urls_sitemap) != 0:
-            for url in urls_sitemap:
-                try:
-                    check_xml = url.split(".")[-1][:3]
-                except:
-                    check_xml = False
-                if check_xml != "xml":
-                    list_page_site.append(url)
-                elif check_xml == "xml":
-                    list_xml += get_sitemap_url_list(url)
-            urls_sitemap = list_xml
-            list_xml = []
-        else:
-            break
-    return list_page_site
+# get all pages of a site from a sitemap
+def get_url_list_in_sitemap(sitemap):
+    list_page = []
+    for page in sitemap_tree_for_homepage(sitemap).all_pages():
+        if page.url not in list_page:
+            list_page.append(page.url)
+    return list_page
 
 
 # check for a sitemap and get a link to it
@@ -207,6 +196,7 @@ def check_sitemap(url):
     sitemap = url + "/sitemap.xml"
     if get_url(sitemap).status_code == 200:
         return sitemap
+
     sitemap = url + "/robots.txt"
     if get_url(sitemap).status_code == 200:
         try:
@@ -214,23 +204,33 @@ def check_sitemap(url):
             return sitemap
         except:
             pass
+
     return "not_found"
 
 
 # obtaining a ready-made dictionary with data for all pages
-def get_result_dict(url, sitemap):
-    result_dict = {url: {"sitemap": '', "page_list": {}}}
-    result_dict[url]["sitemap"] = sitemap
-    page_site = get_site_url_list(sitemap)
+def get_result_dict(sitemap):
+    result_dict = {"sitemap": sitemap, "page_list": {}}
+    page_site_google_result = [page for page in JsonRW().json_read("google_result")]
+
+    if sitemap != "not_found":
+        page_site_sitemap = get_url_list_in_sitemap(sitemap)
+        page_site = list(filter(lambda x: True if x not in  page_site_google_result else False, page_site_sitemap))
+        page_site += page_site_google_result
+    else:
+        page_site = page_site_google_result
+
     for page in page_site:
         status_code = get_url(page)
+
         if status_code != "no_connection":
             status_code = status_code.status_code
-            result_dict[url]["page_list"][page] = {"status_code": status_code}
+            result_dict["page_list"][page] = {"status_code": status_code}
+
             if status_code == 200:
                 page_source = get_page_source_webdriver(page)
                 scraper_head = ScrapingHead(page_source)
-                result_dict[url]["page_list"][page]["page_content"] = {
+                result_dict["page_list"][page]["page_content"] = {
                     "title": scraper_head.get_title(),
                     "description": scraper_head.get_description(),
                     "canonical": scraper_head.get_tag_canonical(),
@@ -248,19 +248,20 @@ def check_site(url):
     if base_status_code != "no_connection":
         base_status_code = base_status_code.status_code
         sitemap = check_sitemap(url)
-        if base_status_code == 200 and sitemap != "not_found":
-            result_dict = get_result_dict(url, sitemap)
+
+        if base_status_code == 200:
+            result_dict = get_result_dict(sitemap)
             return result_dict
+
         elif base_status_code != 200:
             return f"we can't scan this resource because it responds with a {base_status_code} HTTP status code."
-        elif sitemap == "not_found":
-            return "sitemap not found"
+
     return "no_connection"
 
 
 def main():
     site = input()
-    json_write(check_site(site))
+    JsonRW().json_write("check_result", check_site(site))
 
 
 if __name__ == "__main__":
