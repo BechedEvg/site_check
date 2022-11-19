@@ -1,5 +1,5 @@
 # site_check
-"site_check" script for collecting site data according to SEO requirements.
+Script of the second stage site_check. Collection of site data in accordance with SEO requirements.
 
 The script requires the presence in the directory of the file "google_result.json" which is the result of the script "google_parser".
 
