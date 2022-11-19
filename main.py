@@ -14,7 +14,7 @@ class DriverChrome:
     def __init__(self):
         self.driver = None
         self.options = webdriver.ChromeOptions()
-        self.options.add_argument('headless')
+        #self.options.add_argument('headless')
         self.options.add_argument("start-maximized")
         self.options.add_argument('--disable-blink-features=AutomationControlled')
         self.options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -78,6 +78,40 @@ class JsonRW:
     def json_read(self, name):
         with open(f'{name}.json', 'r') as infile:
             return json.load(infile)
+
+
+def check_robots(url):
+    robot_check = {"user_agent": [], "url_sitemap": "not_found"}
+    patch_robot = url + "/robots.txt"
+    user_agent_list = []
+    page_robot = get_url(patch_robot)
+    if page_robot.status_code == 200:
+        try:
+            page_robot.text.split("Sitemap:")[1].split()[0]
+            robot_check["url_sitemap"] = "found"
+        except:
+            pass
+        try:
+            robots_line = page_robot.text.split("\n")
+
+            for line, par in zip(robots_line[::2], robots_line[1::2]):
+                line_list = line.split()
+
+                if line_list[0].lower() == "user-agent:":
+                    user_agent = line_list[1]
+                    rule = par.split()
+
+                    if rule[0].lower() == "disallow:":
+                        if len(rule) == 1 or rule[1] != "/":
+                            user_agent_list.append(user_agent)
+        except:
+            pass
+
+    if "*" in user_agent_list:
+        robot_check["user_agent"].append("*")
+    else:
+        robot_check["user_agent"] += user_agent_list
+    return robot_check
 
 
 # check for google code on page
@@ -209,8 +243,9 @@ def check_sitemap(url):
 
 
 # obtaining a ready-made dictionary with data for all pages
-def get_result_dict(sitemap):
-    result_dict = {"sitemap": sitemap, "page_list": {}}
+def get_result_dict(sitemap, url):
+    robots = check_robots(url)
+    result_dict = {"robots": robots, "sitemap": sitemap, "page_list": {}}
     page_site_google_result = [page for page in JsonRW().json_read("google_result")]
 
     if sitemap != "not_found":
@@ -237,7 +272,7 @@ def get_result_dict(sitemap):
                     "list_tag": get_teg_h(page_source),
                     "images_alt": check_alt_img(page_source),
                     "external_link": get_external_link(page, page_source),
-                    "google_cod": check_cod_google(page_source)
+                    "google_cod": check_cod_google(page_source),
                 }
     return result_dict
 
@@ -250,7 +285,7 @@ def check_site(url):
         sitemap = check_sitemap(url)
 
         if base_status_code == 200:
-            result_dict = get_result_dict(sitemap)
+            result_dict = get_result_dict(sitemap, url)
             return result_dict
 
         elif base_status_code != 200:
