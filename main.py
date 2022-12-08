@@ -92,20 +92,21 @@ def check_robots(url):
         except:
             pass
         try:
-            robots_line = page_robot.text.split("\n")
+            robots_line = page_robot.text.lower().split("\n")
+            for i in range(len(robots_line)):
+                user_agent = (robots_line[i].split())
+                if len(user_agent) != 0:
+                    if user_agent[0] == "user-agent:":
+                        for rule in robots_line[i:]:
 
-            for line, par in zip(robots_line[::2], robots_line[1::2]):
-                line_list = line.split()
+                            rule = rule.split()
+                            if len(rule) != 0:
 
-                if line_list[0].lower() == "user-agent:":
-                    user_agent = line_list[1]
-                    rule = par.split()
-
-                    if rule[0].lower() == "disallow:":
-                        if len(rule) == 1 or rule[1] != "/":
-                            user_agent_list.append(user_agent)
+                                if (rule[0] == "disallow:" and len(rule) == 1) or (rule[0] == "disallow:" and rule[1] != "/"):
+                                    user_agent_list.append(user_agent[1])
+                                    break
         except:
-            pass
+            return robot_check
 
     if "*" in user_agent_list:
         robot_check["user_agent"].append("*")
@@ -202,6 +203,7 @@ def get_page_source_webdriver(url):
     html = browser.driver.page_source
     browser.close_browser()
     return html
+
 
 
 def get_url(url):
