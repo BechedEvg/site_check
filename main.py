@@ -1,12 +1,11 @@
 from bs4 import BeautifulSoup
-import json
-import cloudscraper
-import os
 from selenium import webdriver
+from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium_stealth import stealth
-from time import sleep
-from usp.tree  import sitemap_tree_for_homepage
+import os
+import re
+import json
 
 
 class DriverChrome:
@@ -14,7 +13,7 @@ class DriverChrome:
     def __init__(self):
         self.driver = None
         self.options = webdriver.ChromeOptions()
-        #self.options.add_argument('headless')
+        self.options.add_argument('headless')
         self.options.add_argument("start-maximized")
         self.options.add_argument('--disable-blink-features=AutomationControlled')
         self.options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -26,7 +25,7 @@ class DriverChrome:
         stealth(self.driver,
                 languages=["en-US", "en"],
                 vendor="Google Inc.",
-                platform="Win64",
+                platform="Win32",
                 webgl_vendor="Intel Inc.",
                 renderer="Intel Iris OpenGL Engine",
                 fix_hairline=True,
@@ -36,267 +35,120 @@ class DriverChrome:
         self.driver.quit()
 
 
-# getting main tags from HEAD
-class ScrapingHead:
-
-    def __init__(self, source_page):
-        self.parser = BeautifulSoup(source_page, 'lxml')
-
-    def get_title(self):
-        try:
-            title = self.parser.find("head").find("title").text
-            return title
-        except:
-            return "not_found"
-
-    def get_description(self):
-        try:
-            description = self.parser.find("head").find(attrs={"name": "description"}).get("content")
-            return description
-        except:
-            pass
-        try:
-            description = self.parser.find("head").find(attrs={"property": "og:description"}).get("content")
-            return description
-        except:
-            return "not_found"
-
-    def get_tag_canonical(self):
-        try:
-            title = self.parser.find("head").find("link", {"rel": "canonical"}).get("href")
-            return title
-        except:
-            return "not_found"
+def json_write(result_dict):
+    with open('Result.json', 'w', encoding="utf-8") as outfile:
+        json.dump(result_dict, outfile, indent=4, ensure_ascii=False)
 
 
-class JsonRW:
-
-    def json_write(self, name, in_dict):
-        with open(f'{name}.json', 'w') as outfile:
-            json.dump(in_dict, outfile, indent=4, ensure_ascii=False)
-
-    def json_read(self, name):
-        with open(f'{name}.json', 'r') as infile:
-            return json.load(infile)
-
-
-def check_robots(url):
-    robot_check = {"user_agent": [], "url_sitemap": "not_found"}
-    patch_robot = url + "/robots.txt"
-    user_agent_list = []
-    page_robot = get_url(patch_robot)
-    if page_robot.status_code == 200:
-        try:
-            page_robot.text.split("Sitemap:")[1].split()[0]
-            robot_check["url_sitemap"] = "found"
-        except:
-            pass
-        try:
-            robots_line = page_robot.text.split("\n")
-
-            for line, par in zip(robots_line[::2], robots_line[1::2]):
-                line_list = line.split()
-
-                if line_list[0].lower() == "user-agent:":
-                    user_agent = line_list[1]
-                    rule = par.split()
-
-                    if rule[0].lower() == "disallow:":
-                        if len(rule) == 1 or rule[1] != "/":
-                            user_agent_list.append(user_agent)
-        except:
-            pass
-
-    if "*" in user_agent_list:
-        robot_check["user_agent"].append("*")
-    else:
-        robot_check["user_agent"] += user_agent_list
-    return robot_check
+# add mobile page title length to page dictionary from (desktop check)
+def add_mobile_title_len(domain, desktop_dict):
+    url = f"https://www.google.com/search?q=site:{domain}&num=100&start=0"
+    page_list = get_site_page(url, device="mobile")
+    start = 100
+    while True:
+        for page in page_list:
+            page_url = page.find(class_="P8ujBc jqWpsc").find("a")["href"]
+            title = page.find(class_="oewGkc LeUQr MUxGbd v0nnCb").text
+            if page_url in desktop_dict["dict_page"]:
+                desktop_dict["dict_page"][page_url]["len_title_mobile"] = len(title)
+        url = f"https://www.google.com/search?q=site:{domain}&num=100&start={start}"
+        page_list = get_site_page(url, device="mobile")
+        if len(page_list) != 0:
+            start += 100
+        else:
+            break
+    return desktop_dict
 
 
-# check for google code on page
-def check_cod_google(source_page):
-    parser = BeautifulSoup(source_page, 'lxml')
-    dict_google_cod = {"analytics(ua)": "not_found", "analytics(ga4)": "not_found"}
-    script = str(parser.find_all('script', {"src": True}))
-    if script.find("googletagmanager.com/gtag/js") != -1:
-        dict_google_cod["analytics(ga4)"] = "found"
-
-    if script.find("google-analytics.com/analytics.js") != -1:
-        dict_google_cod["analytics(ua)"] = "found"
-    return dict_google_cod
-
-
-# get list of img tags
-def check_alt_img(source_page):
-    parser = BeautifulSoup(source_page, 'lxml')
-    img = parser.find_all("img")
-    dit_img = {"img_amount": 0, "list_atl": []}
-    for i in img:
-        dit_img["img_amount"] += 1
-        try:
-            dit_img["list_atl"].append(i["alt"])
-        except:
-            pass
-    return dit_img
+# get a dictionary of all pages with data from the check in the search engine
+# (desktop check)
+def get_desktop_dict_page(domain):
+    url = f"https://www.google.com/search?q=site:{domain}&num=100&start=0"
+    number_pages = check_number_pages(url)
+    page_list, url = get_site_page(url)
+    dict_domain = {"number_pages": number_pages, "dict_page": {}}
+    while True:
+        for page in page_list:
+            page_url = page.find(class_="yuRUbf").find("a")["href"]
+            description = page.find(class_=re.compile("VwiC3b yXK7lf MUxGbd yDYNvb lyLwlc")).text.replace(u'\xa0', u' ')
+            title = page.find(class_="LC20lb MBeuO DKV0Md").text
+            dict_domain["dict_page"][page_url] = {
+                "title": title,
+                "description": description,
+                "len_title_desktop": len(title)
+            }
+        if url:
+            page_list, url = get_site_page(url)
+        else:
+            break
+    return dict_domain
 
 
-# get structure and content of H tags
-def get_teg_h(source_page):
-    parser = BeautifulSoup(source_page, 'lxml')
-    list_tag_h = parser.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
-    dict_tag = {"h1": {"count": 0, "list_source": []}, "list_tag": []}
-    for tag in list_tag_h:
-        h = str(tag).split()[0][1:3]
-
-        if h == "h1":
-            dict_tag["h1"]["count"] += 1
-            dict_tag["h1"]["list_source"].append(str(tag))
-
-        if h not in dict_tag["list_tag"]:
-            dict_tag["list_tag"].append(h)
-
-    if len(dict_tag["list_tag"]) != 0:
-        return dict_tag
-    else:
-        return "not_found"
+# get number of pages in search
+def check_number_pages(url):
+    html_search = get_html(url)
+    parser = BeautifulSoup(html_search, "lxml")
+    number_pages = (parser.find(class_="LHJvCe").text.split()[2:-2])
+    return "".join(number_pages)
 
 
-# checking if two links belong to the same domain
-def check_domain(url_page, link):
+# check if the next page is in the search query and return its link
+def check_next_page(html_search):
+    parser = BeautifulSoup(html_search, "lxml")
     try:
-        url_page = url_page.split('/')[2]
-        link = link.split('/')[2]
-        if url_page.split(".")[0].lower() == "www":
-            url_page = link[4:]
-
-        if link.split(".")[0].lower() == "www":
-            link = link[4:]
-
-        if link == url_page:
-            return True
-
-        return False
+        next_page = "https://www.google.com"
+        next_page += parser.find(jsname="TeSSVd").find_all(class_="d6cvqb BBwThe")[-1].find("a")["href"]
+        return next_page
     except:
         return False
 
 
-# get list of external links
-def get_external_link(url, source_page):
-    parser = BeautifulSoup(source_page, 'lxml')
-    parser.find_all("a")
-    list_link = []
-    for page_element in parser.find_all("a"):
-        try:
-            link = page_element["href"]
-            if link.split("/")[0] == "https:" or link.split("/")[0] == "http:":
-                if not check_domain(url, link):
-                    list_link.append(link)
-        except:
-            pass
-    return list_link
-
-
-# get page code with webdriver
-def get_page_source_webdriver(url):
+# get page html
+def get_html(url):
     browser = DriverChrome()
     browser.open_browser()
     browser.driver.get(url)
-    html = browser.driver.page_source
+    html = browser.driver.find_element(By.XPATH, "/html")
+    html = html.get_attribute("innerHTML")
     browser.close_browser()
     return html
 
 
-
-def get_url(url):
-    scraper = cloudscraper.create_scraper()
-    try:
-        return scraper.get(url)
-    except:
-        return "no_connection"
-
-
-# get all pages of a site from a sitemap
-def get_url_list_in_sitemap(sitemap):
-    list_page = []
-    for page in sitemap_tree_for_homepage(sitemap).all_pages():
-        if page.url not in list_page:
-            list_page.append(page.url)
-    return list_page
+# get page html from mobile emulation
+def get_mobile_html(url):
+    browser = DriverChrome()
+    browser.options.add_argument("user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, likeGecko) Version/10.0 Mobile/14E304 Safari/602.1")
+    mobileEmulation = {'deviceName': 'iPhone 8'}
+    browser.options.add_experimental_option('mobileEmulation', mobileEmulation)
+    browser.open_browser()
+    browser.driver.get(url)
+    html = browser.driver.find_element(By.XPATH, "/html")
+    html = html.get_attribute("innerHTML")
+    browser.close_browser()
+    return html
 
 
-# check for a sitemap and get a link to it
-def check_sitemap(url):
-    sitemap = url + "/sitemap.xml"
-    if get_url(sitemap).status_code == 200:
-        return sitemap
-
-    sitemap = url + "/robots.txt"
-    if get_url(sitemap).status_code == 200:
-        try:
-            sitemap = get_url(sitemap).text.split("Sitemap:")[1].split()[0]
-            return sitemap
-        except:
-            pass
-
-    return "not_found"
-
-
-# obtaining a ready-made dictionary with data for all pages
-def get_result_dict(sitemap, url):
-    robots = check_robots(url)
-    result_dict = {"robots": robots, "sitemap": sitemap, "page_list": {}}
-    page_site_google_result = [page for page in JsonRW().json_read("google_result")]
-
-    if sitemap != "not_found":
-        page_site_sitemap = get_url_list_in_sitemap(sitemap)
-        page_site = list(filter(lambda x: True if x not in  page_site_google_result else False, page_site_sitemap))
-        page_site += page_site_google_result
-    else:
-        page_site = page_site_google_result
-
-    for page in page_site:
-        status_code = get_url(page)
-
-        if status_code != "no_connection":
-            status_code = status_code.status_code
-            result_dict["page_list"][page] = {"status_code": status_code}
-
-            if status_code == 200:
-                page_source = get_page_source_webdriver(page)
-                scraper_head = ScrapingHead(page_source)
-                result_dict["page_list"][page]["page_content"] = {
-                    "title": scraper_head.get_title(),
-                    "description": scraper_head.get_description(),
-                    "canonical": scraper_head.get_tag_canonical(),
-                    "list_tag": get_teg_h(page_source),
-                    "images_alt": check_alt_img(page_source),
-                    "external_link": get_external_link(page, page_source),
-                    "google_cod": check_cod_google(page_source),
-                }
-    return result_dict
-
-
-# site check main function
-def check_site(url):
-    base_status_code = get_url(url)
-    if base_status_code != "no_connection":
-        base_status_code = base_status_code.status_code
-        sitemap = check_sitemap(url)
-
-        if base_status_code == 200:
-            result_dict = get_result_dict(sitemap, url)
-            return result_dict
-
-        elif base_status_code != 200:
-            return f"we can't scan this resource because it responds with a {base_status_code} HTTP status code."
-
-    return "no_connection"
+# Get a list of classes with page data depending on the device.
+# (returns a link to go to the next search page if devise=desktop)
+def get_site_page(url, device="desktop"):
+    if device == "desktop":
+        html_search = get_html(url)
+        next_page = check_next_page(html_search)
+        parser = BeautifulSoup(html_search, "lxml")
+        page_list = parser.find_all(class_="MjjYud")
+        return page_list, next_page
+    elif device == "mobile":
+        html_search = get_mobile_html(url)
+        parser = BeautifulSoup(html_search, "lxml")
+        page_list = parser.find_all(class_="MjjYud")
+        return page_list
 
 
 def main():
-    site = input()
-    JsonRW().json_write("check_result", check_site(site))
+    domain = input()
+    desktop_dict_page = get_desktop_dict_page(domain)
+    result_dict = add_mobile_title_len(domain, desktop_dict_page)
+    json_write(result_dict)
 
 
 if __name__ == "__main__":
