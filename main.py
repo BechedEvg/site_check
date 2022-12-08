@@ -14,7 +14,7 @@ class DriverChrome:
     def __init__(self):
         self.driver = None
         self.options = webdriver.ChromeOptions()
-        #self.options.add_argument('headless')
+        self.options.add_argument('headless')
         self.options.add_argument("start-maximized")
         self.options.add_argument('--disable-blink-features=AutomationControlled')
         self.options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -156,10 +156,7 @@ def get_teg_h(source_page):
         if h not in dict_tag["list_tag"]:
             dict_tag["list_tag"].append(h)
 
-    if len(dict_tag["list_tag"]) != 0:
-        return dict_tag
-    else:
-        return "not_found"
+    return dict_tag
 
 
 # checking if two links belong to the same domain
@@ -258,13 +255,8 @@ def get_result_dict(sitemap, url):
     else:
         page_site = page_site_google_result
 
-    flag = len(page_site)
-    print(flag)
-
     for page in page_site:
         status_code = get_url(page)
-        flag -= 1
-        print(flag)
 
         if status_code != "no_connection":
             status_code = status_code.status_code
