@@ -204,7 +204,6 @@ def get_page_source_webdriver(url):
     return html
 
 
-
 def get_url(url):
     scraper = cloudscraper.create_scraper()
     try:
